@@ -134,7 +134,7 @@ let grab_global_env_drop_sigma api thunk = (); (fun state ->
   let state, result, gls = thunk state in
   Coq_elpi_HOAS.grab_global_env_drop_sigma state, result, gls)
 
-let warn_if_contains_univ_levels ~depth t =
+let err_if_contains_alg_univ ~depth t =
   let global_univs = UGraph.domain (Environ.universes (Global.env ())) in
   let is_global u = 
     match Univ.Universe.level u with
@@ -142,13 +142,20 @@ let warn_if_contains_univ_levels ~depth t =
     | Some l -> Univ.Level.Set.mem l global_univs in
   let rec aux ~depth acc t =
     match E.look ~depth t with
-    | E.CData c when isuniv c -> let u = univout c in if is_global u then acc else u :: acc
+    | E.CData c when isuniv c ->
+        let u = univout c in
+        if is_global u then acc
+        else
+          begin match Univ.Universe.level u with
+          | None ->
+            err Pp.(strbrk "The hypothetical clause contains terms of type univ which are not global, you should abstract them out or replace them by global ones: " ++
+                      Univ.Universe.pr UnivNames.pr_with_global_universes u)
+          | _ -> Univ.Universe.Set.add u acc
+          end
     | x -> Coq_elpi_utils.fold_elpi_term aux acc ~depth x
   in
-  let univs = aux ~depth [] t in
-  if univs <> [] then
-    err Pp.(strbrk "The hypothetical clause contains terms of type univ which are not global, you should abstract them out or replace them by global ones: " ++
-            prlist_with_sep spc (Univ.Universe.pr UnivNames.pr_with_global_universes) univs)
+  let univs = aux ~depth Univ.Universe.Set.empty t in
+  univs
 ;;
 
 let bool = B.bool
@@ -486,7 +493,7 @@ let clause = let open Conv in let open API.AlgebraicData in declare {
 A clause like
  :name "foo" :before "bar" foo X Y :- bar X Z, baz Z Y
 is represented as
- clause _ "foo" (before "bar") (pi x y z\ foo x y :- bar x z, baz z y)
+ clause "foo" (before "bar") (pi x y z\ foo x y :- bar x z, baz z y)
 that is exactly what one would load in the context using =>.
 
 The name and the grafting specification can be left unspecified.|};
@@ -499,9 +506,30 @@ The name and the grafting specification can be left unspecified.|};
 } |> CConv.(!<)
 
 let set_accumulate_to_db, get_accumulate_to_db =
-  let f = ref (fun _ _ _ ~scope:_ -> assert false) in
+  let f = ref (fun _ -> assert false) in
   (fun x -> f := x),
   (fun () -> !f)
+
+let argument_mode = let open Conv in let open API.AlgebraicData in declare {
+  ty = TyName "argument_mode";
+  doc = "Specify if a predicate argument is in input or output mode";
+  pp = (fun fmt _ -> Format.fprintf fmt "<todo>");
+  constructors = [
+    K("in","",N,
+        B `Input,
+        M (fun ~ok ~ko -> function `Input -> ok | _ -> ko ()));
+    K("out","",N,
+        B `Output,
+        M (fun ~ok ~ko -> function `Output -> ok | _ -> ko ()));
+  ]
+} |> CConv.(!<)
+  
+
+let set_accumulate_text_to_db, get_accumulate_text_to_db =
+  let f = ref (fun _ _ -> assert false) in
+  (fun x -> f := x),
+  (fun () -> !f)
+
 
 let class_ = let open Conv in let open API.AlgebraicData in let open Coercionops in declare {
   ty = TyName "class";
@@ -718,22 +746,6 @@ let _if_keep_acc x state f =
   | Pred.Keep ->
        let state, x = f state in
        state, Some x
-
-let mp2path x =
-  let rec mp2sl = function
-    | MPfile dp -> CList.rev_map Id.to_string (DirPath.repr dp)
-    | MPbound id ->
-        let _,id,dp = MBId.repr id in
-        mp2sl (MPfile dp) @ [ Id.to_string id ]
-    | MPdot (mp,lbl) -> mp2sl mp @ [Label.to_string lbl] in
-  mp2sl x
-
-let gr2path gr =
-  match gr with
-  | Names.GlobRef.VarRef v -> mp2path (Safe_typing.current_modpath (Global.safe_env ()))
-  | Names.GlobRef.ConstRef c -> mp2path @@ Constant.modpath c
-  | Names.GlobRef.IndRef (i,_) -> mp2path @@ MutInd.modpath i
-  | Names.GlobRef.ConstructRef ((i,_),j) -> mp2path @@ MutInd.modpath i
 
 let gr2id state gr =
   let open GlobRef in
@@ -1168,6 +1180,12 @@ let dep1 ?inside sigma gr =
 let universe_level_set, universe_level_set_decl =
   B.ocaml_set_conv ~name:"coq.univ.variable.set" universe_level_variable (module UnivLevelSet)
 
+let coq_print pp msg_f =
+  (fun args ~depth _hyps _constraints state ->
+     let pp = pp ~depth in
+     msg_f Pp.(str (pp2string (P.list ~boxed:true pp " ") args));
+     state, ())
+
 (*****************************************************************************)
 (*****************************************************************************)
 (*****************************************************************************)
@@ -1214,12 +1232,22 @@ let coq_builtins =
 
   LPDoc "-- Misc ---------------------------------------------------------";
 
-  MLCode(Pred("coq.say",
+  MLCode(Pred("coq.info",
     VariadicIn(unit_ctx, !> B.any, "Prints an info message"),
-  (fun args ~depth _hyps _constraints state ->
-     let pp = pp ~depth in
-     Feedback.msg_notice Pp.(str (pp2string (P.list ~boxed:true pp " ") args));
-     state, ())),
+    coq_print pp Feedback.msg_info
+  ),
+  DocAbove);
+
+  MLCode(Pred("coq.notice",
+    VariadicIn(unit_ctx, !> B.any, "Prints a notice message"),
+    coq_print pp Feedback.msg_notice
+  ),
+  DocAbove);
+
+  MLCode(Pred("coq.say",
+    VariadicIn(unit_ctx, !> B.any, "Prints a notice message"),
+    coq_print pp Feedback.msg_notice
+  ),
   DocAbove);
 
   MLCode(Pred("coq.warn",
@@ -1370,17 +1398,53 @@ Supported attributes:
   DocAbove);
 
   MLCode(Pred("coq.env.global",
-    In(gref, "GR",
-    COut(closed_ground_term, "T",
-    Full(global, {|turns a global reference GR into a term.
+    InOut(B.ioarg (B.poly "gref"), "GR",
+    InOut(B.ioarg (B.poly "term"), "T",
+    Full(global, {|turns a global reference GR into a term, or viceversa.
 T = (global GR) or, if GR points to a universe polymorphic term,
 T = (pglobal GR I).
 Supported attributes:
 - @uinstance! I (default: fresh instance I)|}))),
-  (fun gr _ ~depth { options } _ state ->
-    let state, t, _, gls =
-      compute_with_uinstance ~depth options state mk_global gr None in
-    state, !: t, gls)),
+  (fun gr t ~depth ({ options } as ctx) csts state ->
+    let state, gr_in, _ =
+      match gr with
+      | NoData -> state, None, []
+      | Data maybe_gr ->
+          match E.look ~depth maybe_gr with
+          | E.App(_,x,[]) ->
+              begin match E.look ~depth x with
+              | E.CData _ ->
+                  let state, gr, gls = gref.Conv.readback ~depth state maybe_gr in
+                  state, Some gr, gls
+              | _ -> state, None, []
+              end
+          | _ -> state, None, []
+    in
+    let state, gr_out, ui_in =
+      match t with
+      | NoData -> state, None, None
+      | Data maybe_t ->
+          match is_global_or_pglobal ~depth maybe_t with
+          | NotGlobal -> raise No_clause
+          | Var -> state, None, None
+          | (Global maybe_gr) -> state, maybe_gr, None
+          | (PGlobal(maybe_gr,maybe_ui)) -> state, maybe_gr, maybe_ui
+      in
+    match gr_in, gr_out with
+    | Some gr, _ ->
+        let state, t, _, gls1 =
+          compute_with_uinstance ~depth options state mk_global gr ui_in in
+        let state, t, gls2 =
+          closed_ground_term.CConv.embed ~depth ctx csts state t in
+        state, ?: None +! t, gls1 @ gls2
+    | None, Some maybe_gr ->
+        let state, gr, gls = gref.Conv.readback ~depth state maybe_gr in
+        let state, t, _, gls1 =
+          compute_with_uinstance ~depth options state mk_global gr ui_in in
+        let state, t, gls2 =
+          closed_ground_term.CConv.embed ~depth ctx csts state t in
+        state, !: maybe_gr +! t, gls @ gls1 @ gls2
+    | None, None -> err Pp.(str "coq.env.global: no input, all arguments are variables"))),
   DocAbove);
 
   MLCode(Pred("coq.env.indt",
@@ -1749,6 +1813,16 @@ Supported attributes:
     Out(list B.string, "Path",
     Read(unit_ctx, "lists the current module path")),
   (fun _ ~depth _ _ state -> !: (mp2path (Safe_typing.current_modpath (Global.safe_env ()))))),
+  DocAbove);
+
+  MLCode(Pred("coq.env.current-section-path",
+    Out(list B.string, "Path",
+    Read(unit_ctx, "lists the current section path")),
+  (fun _ ~depth _ _ state ->
+       let base = Lib.current_dirpath false in
+       let base_w_sections = Lib.current_dirpath true in
+       let sections = Libnames.drop_dirpath_prefix base base_w_sections in
+       !: (mp2path (Names.ModPath.MPfile sections)))),
   DocAbove);
 
   LPCode {|% Deprecated, use coq.env.opaque?
@@ -2580,9 +2654,18 @@ Supported attributes:
   DocAbove);
 
   MLCode(Pred("coq.TC.db",
-    Out(list tc_instance, "Db",
-    Easy "reads all instances"),
+    Out(list tc_instance, "Instances",
+    Easy "reads all type class instances"),
   (fun _ ~depth -> !: (Typeclasses.all_instances ()))),
+  DocAbove);
+
+  MLCode(Pred("coq.TC.db-tc",
+    Out(list gref, "TypeClasses",
+    Easy "reads all type classes"),
+  (fun _ ~depth -> !: (
+    let x = Typeclasses.typeclasses () in 
+    let l = List.map (fun x -> x.Typeclasses.cl_impl) x in 
+    l))),
   DocAbove);
 
   MLCode(Pred("coq.TC.db-for",
@@ -3039,6 +3122,11 @@ is equivalent to Elpi Export TacName.|})))),
   MLData attribute_value;
   MLData attribute;
 
+  LPCode {|
+% see coq-lib.elpi for coq.parse-attributes generating the options below
+type get-option string -> A -> prop.
+|};
+
   LPDoc "-- Coq's pretyper ---------------------------------------------------";
 
   MLCode(Pred("coq.sigma.print",
@@ -3168,8 +3256,10 @@ T is allowed to contain holes (unification variables) but these are
 not assigned even if the elaborated term has a term in place of the
 hole. Similarly universe levels present in T are disregarded.
 Supported attributes:
-- @keepunivs! (default false, do not disregard universe levels) |}))))),
+- @keepunivs! (default false, do not disregard universe levels)
+- @no-tc! (default false, do not infer typeclasses) |}))))),
   (fun gt ety _ diag ~depth proof_context _ state ->
+    let flags = if proof_context.options.no_tc = Some true then {(Pretyping.default_inference_flags false) with  use_typeclasses = NoUseTC} else Pretyping.default_inference_flags false in
     try
       let sigma = get_sigma state in
       let ety_given, expected_type =
@@ -3181,7 +3271,7 @@ Supported attributes:
             | _ -> `Yes, Pretyping.OfType ety
       in
       let sigma, uj_val, uj_type =
-        Pretyping.understand_tcc_ty proof_context.env sigma ~expected_type gt in
+        Pretyping.understand_tcc_ty ~flags proof_context.env sigma ~expected_type gt in
       match ety_given with
       | `No ->
           let state, assignments = set_current_sigma ~depth state sigma in
@@ -3213,13 +3303,15 @@ T is allowed to contain holes (unification variables) but these are
 not assigned even if the elaborated term has a term in place of the
 hole. Similarly universe levels present in T are disregarded.
 Supported attributes:
-- @keepunivs! (default false, do not disregard universe levels) |}))))),
+- @keepunivs! (default false, do not disregard universe levels)
+- @no-tc! (default false, do not infer typeclasses)|}))))),
   (fun gt es _ diag ~depth proof_context _ state ->
     try
       let sigma = get_sigma state in
+      let flags = if proof_context.options.no_tc = Some true then {(Pretyping.default_inference_flags false) with  use_typeclasses = NoUseTC} else Pretyping.default_inference_flags false in
       let expected_type = Pretyping.IsType in
       let sigma, uj_val, uj_type =
-        Pretyping.understand_tcc_ty proof_context.env sigma ~expected_type gt in
+        Pretyping.understand_tcc_ty ~flags proof_context.env sigma ~expected_type gt in
       let sort = EConstr.ESorts.kind sigma @@ EConstr.destSort sigma uj_type in
       let state, assignments = set_current_sigma ~depth state sigma in
       state, !: sort +! uj_val +! B.mkOK, assignments
@@ -3722,12 +3814,18 @@ Supported attributes:
   MLData grafting;
   MLData scope;
 
-  MLCode(Pred("coq.elpi.accumulate",
+  LPCode {|
+% see coq.elpi.accumulate-clauses
+pred coq.elpi.accumulate i:scope, i:id, i:clause.
+coq.elpi.accumulate S N C :- coq.elpi.accumulate-clauses S N [C].
+|};
+
+  MLCode(Pred("coq.elpi.accumulate-clauses",
     In(B.unspec scope, "Scope",
     In(id, "DbName",
-    In(clause, "Clause",
+    In(B.list clause, "Clauses",
     Full (global, {|
-Declare that, once the program is over, the given clause has to be
+Declare that, once the program is over, the given clauses has to be
 added to the given db (see Elpi Db).
 Clauses usually belong to Coq modules: the Scope argument lets one
 select which module:
@@ -3741,29 +3839,104 @@ A clause that mentions a section variable is automatically discarded
 at the end of the section.
 Clauses cannot be accumulated inside functors.
 Supported attributes:
-- @local! (default: false, discard at the end of section or module)|} )))),
-  (fun scope dbname (name,graft,clause) ~depth ctx _ state ->
+- @local! (default: false, discard at the end of section or module)
+- @global! (default: false, always active, only if Scope is execution-site, discouraged)|} )))),
+  (fun scope dbname clauses ~depth ctx _ state ->
      let loc = API.Ast.Loc.initial "(elpi.add_clause)" in
      let dbname = Coq_elpi_utils.string_split_on_char '.' dbname in
-     warn_if_contains_univ_levels ~depth clause;
-     let vars = collect_term_variables ~depth clause in
-     let clause = U.clause_of_term ?name ?graft ~depth loc clause in
+     let clauses scope =
+      clauses |> CList.rev_map (fun (name,graft,clause) ->
+        let levels_to_abstract = err_if_contains_alg_univ ~depth clause in
+        let levels_to_abstract_no = Univ.Universe.Set.cardinal levels_to_abstract in
+        let rec subst ~depth m t =
+          match E.look ~depth t with
+          | E.CData c when isuniv c ->
+              begin try E.mkBound (Univ.Universe.Map.find (univout c) m)
+              with Not_found -> t end
+          | E.App(c,x,xs) ->
+              E.mkApp c (subst ~depth m x) (List.map (subst ~depth m) xs)
+          | E.Cons(x,xs) ->
+              E.mkCons (subst ~depth m x) (subst ~depth m xs)
+          | E.Lam x ->
+              E.mkLam (subst ~depth:(depth+1) m x)
+          | E.Builtin(c,xs) ->
+              E.mkBuiltin c (List.map (subst ~depth m) xs)
+          | E.UnifVar _ -> assert false
+          | E.Const _ | E.Nil | E.CData _ -> t
+          in
+        let clause = 
+          let rec bind d map = function
+           | [] ->
+               subst ~depth:d map
+                 (API.Utils.move ~from:depth ~to_:(depth + levels_to_abstract_no) clause)
+           | l :: ls ->
+             E.mkApp E.Constants.pic (E.mkLam (*   pi x\  *)
+                 (bind (d+1) (Univ.Universe.Map.add l d map) ls)) []
+           in
+             bind depth Univ.Universe.Map.empty
+               (Univ.Universe.Set.elements levels_to_abstract)
+        in
+        let vars = collect_term_variables ~depth clause in
+        let clause = U.clause_of_term ?name ?graft ~depth loc clause in
+        (dbname,clause,vars,scope)) in
      let local = ctx.options.local = Some true in
+     let super_global = ctx.options.local = Some false in
      match scope with
      | B.Unspec | B.Given ExecutionSite ->
-         let scope = if local then Local else Regular in
+         let scope = if super_global then SuperGlobal else if local then Local else Regular in
          State.update clauses_for_later state (fun l ->
-           (dbname,clause,vars,scope) :: l), (), []
+           clauses scope @ l), (), []
      | B.Given Library ->
          if local then CErrors.user_err Pp.(str "coq.elpi.accumulate: library scope is incompatible with @local!");
          State.update clauses_for_later state (fun l ->
-           (dbname,clause,vars,Global) :: l), (), []
+           clauses Coq_elpi_utils.Global @ l), (), []
      | B.Given CurrentModule ->
           let scope = if local then Local else Regular in
           let f = get_accumulate_to_db () in
-          f dbname clause vars ~scope;
+          f (clauses scope);
           state, (), []
      )),
+  DocAbove);
+
+  MLData argument_mode;
+
+  MLCode(Pred("coq.elpi.add-predicate",
+    In(B.string,"Db",
+    In(B.unspec B.string,"Indexing",
+    In(B.string,"PredName",
+    In(B.list (B.pair argument_mode B.string),"Spec",
+    Full(global,"Declares a new predicate PredName in the data base Db. Indexing can be left unspecified. Spec gathers a mode and a type for each argument. CAVEAT: types and indexing are strings instead of proper data types; beware parsing errors are fatal"))))),
+    (fun dbname indexing predname spec ~depth _ _ state ->
+      let dbname = Coq_elpi_utils.string_split_on_char '.' dbname in
+      let f = get_accumulate_text_to_db () in
+      let indexing =
+        match indexing with
+        | B.Given str -> ":index ("^str^") "
+        | B.Unspec -> "" in
+      let spec = spec |> List.map (fun (mode,ty) ->
+        let mode =
+          match mode with
+          | `Input -> "i:"
+          | `Output -> "o:" in
+        mode ^ "(" ^ ty ^ ")") in
+      let spec = String.concat ", " spec in
+      let text = indexing ^ "pred " ^ predname ^ " " ^ spec ^ "." in
+      f dbname text;
+      state, (), []
+      )),
+  DocAbove);
+
+  MLCode(Pred("coq.elpi.predicate",
+    In(B.string,"PredName",
+    In(list B.any,"Args",
+    Out(B.poly "prop","Pred",
+    Full(global,"Pred is the application of PredName to Args")))),
+    (fun name args _ ~depth _ _ state ->
+      let state, p = Elpi.API.Quotation.term_at ~depth state name in
+      match E.look ~depth p with
+      | Const c -> state, !: (E.mkAppL c args), []
+      | _ -> U.type_error ("predicate name expected, got " ^ name) 
+      )),
   DocAbove);
 
   LPDoc "-- Utils ------------------------------------------------------------";

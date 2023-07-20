@@ -1,10 +1,54 @@
 # Changelog
 
-## UNRELEASED
+## Unreleased
 
-### API:
+### Doc
+- Mention the trace browser for VSCode in the Elpi tutorial.
+
+### API
 - Removed option `@nonuniform!` as it disappears from Coq
   (c.f. https://github.com/coq/coq/pull/17716 )
+- New `coq.elpi.accumulate-clauses` takes a list of clauses which share the
+  same DB and accumulation site
+- New `coq.elpi.add-predicate` to declare the signature of a new predicate into
+  a Db
+- New `coq.elpi.predicate` to build a term of type `prop` out of a predicate
+  name and arguments
+- Change `coq.env.global` now relates a term with a gref, instead of working one
+  way only
+- Change `coq.elpi.accumulate*` generalise clauses over global universe level, and error if algebraic levels are present. It used to warn if levels were present.
+- New `coq.elaborate*skeleton` support the `@no-tc!` option
+- New `@global!` option for `coq.elpi.accumulate*`
+- New `coq.env.current-section-path`
+- New `coq.TC.db-tc` giving all type classes
+
+### HOAS
+- Fix evar declarations were (rarely) generated at the wrong depth, possibly
+  resulting in variable captures in types containing binders
+- Fix assert false in evar instantiation readback (eta contraction code was
+  incomplete)
+- Fix resiliency in case a goal is closed by side effect (was raising fatal
+  errors such as "Not a goal" or "Not a variable afterbg)
+- Change assigning a hole linked to an evar *always* triggers type checking.
+  This is necessary even if the term being assigned is well typed since one
+  may still need to declare some universe constraints.
+- Change propagate type constraints in `Prop` inward (Coq 8.17 only). Eg.
+  `Check (T -> _) : Prop` fails in 8.17 since `_` is assumed to be in `Type`.
+  We propagate the constraint ourselves across `->`, `/\`, `\/` and `~`.
+
+### Vernacular
+- New `Elpi Print` also print the program in `.txt` format
+
+### Runtime
+- New compilation cache able to prevent most of lengthy compilations in
+  Hierarchy-Builder for MathComp 2.0. In some cases Coq-Elpi is more picky
+  about the order of accumulated files, in particular a file containing
+  the spilling of a predicate `{p}` needs to be accumulated after the
+  type or mode of `p` is declared
+
+### APPS
+- `derive Inductive i {A}` now sets `A` implicit status globally
+- `lock Definition f {A}` now sets `A` implicit status globally
 
 ## [1.17.1] - 09/03/2023
 
