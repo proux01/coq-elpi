@@ -38,13 +38,13 @@ Register Coq.Init.Datatypes.andb  as elpi.andb.
 Register Coq.Init.Datatypes.true  as elpi.true.
 Register Coq.Init.Datatypes.false as elpi.false.
 
-From Coq Require Bool.
+(* From Coq Require Bool. *)
 
-Register Coq.Bool.Bool.reflect  as elpi.reflect.
-Register Coq.Bool.Bool.ReflectF as elpi.ReflectF.
-Register Coq.Bool.Bool.ReflectT as elpi.ReflectT.
+Register Coq.Init.Datatypes.reflect  as elpi.reflect.
+Register Coq.Init.Datatypes.ReflectF  as elpi.ReflectF.
+Register Coq.Init.Datatypes.ReflectT  as elpi.ReflectT.
 
-From Coq Require PrimFloat PrimInt63.
+(* From Coq Require PrimFloat PrimInt63. *)
 
-Register Coq.Floats.PrimFloat.float as elpi.float64.
-Register Coq.Numbers.Cyclic.Int63.PrimInt63.int as elpi.uint63.
+(* Register Coq.Floats.PrimFloat.float as elpi.float64. *)
+(* Register Coq.Numbers.Cyclic.Int63.PrimInt63.int as elpi.uint63. *)
