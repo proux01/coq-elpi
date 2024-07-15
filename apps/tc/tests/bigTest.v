@@ -882,23 +882,14 @@ instances *)
 Section prod_setoid.
   Context `{Equiv A, Equiv B}.
   Elpi Accumulate TC.Solver lp:{{
-    /* uncomment when requiring Coq >= 8.21
-    shorten tc-Stdlib.Classes.RelationClasses.{tc-Equivalence}. */
-    /* remove below definition when requiring Coq >= 8.21 */
+    shorten tc-.Classes.RelationClasses.{tc-Equivalence}.
     :after "lastHook"
-    tc-Coq.Classes.RelationClasses.tc-Equivalence A RA R :-
+    tc-Equivalence A RA R :-
       RA = {{@equiv _ (@prod_equiv _ _ _ _)}},
       RA' = {{@prod_relation _ _ _ _}},
       coq.unify-eq RA RA' ok,
       % coq.say A RA,
-      tc-Coq.Classes.RelationClasses.tc-Equivalence A RA' R.
-    :after "lastHook"
-    tc-Stdlib.Classes.RelationClasses.tc-Equivalence A RA R :-
-      RA = {{@equiv _ (@prod_equiv _ _ _ _)}},
-      RA' = {{@prod_relation _ _ _ _}},
-      coq.unify-eq RA RA' ok,
-      % coq.say A RA,
-      tc-Stdlib.Classes.RelationClasses.tc-Equivalence A RA' R.
+      tc-Equivalence A RA' R.
   }}.
   (* Elpi Typecheck TC.Solver. *)
 
@@ -919,7 +910,7 @@ Section prod_setoid.
       std.map L1 remove_equiv_prod_equiv L2.
     remove_equiv_prod_equiv A A.
 
-    shorten tc-Coq.Classes.Morphisms.{tc-Proper}.
+    shorten tc-.Classes.Morphisms.{tc-Proper}.
     
     :after "lastHook" 
     tc-Proper A B C R :-
@@ -1052,7 +1043,7 @@ Elpi Accumulate TC.Solver lp:{{
       std.map L1 remove_equiv_sum_equiv L2.
     remove_equiv_sum_equiv A A.
     
-    shorten tc-Coq.Classes.Morphisms.{tc-Proper}.
+    shorten tc-.Classes.Morphisms.{tc-Proper}.
     :after "lastHook" 
     tc-Proper A B C R :-
       B = {{ @respectful _ _ _ _ }},
