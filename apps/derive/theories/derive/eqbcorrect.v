@@ -1,4 +1,4 @@
-From Coq Require Import ssreflect ssrfun ssrbool Eqdep_dec.
+From Coq Require Import ssreflect ssrfun ssrbool (* Eqdep_dec *).
 From elpi Require Import elpi.
 From elpi.apps Require Import derive.
 From elpi.apps.derive Require Import induction param1_functor param1_trivial eqb_core_defs tag fields eqb.
@@ -35,11 +35,15 @@ Ltac eqb_refl_on__solver :=
   repeat ((apply /andP; split) || reflexivity || assumption).
 End exports.
 
+Require Import Uint63Axioms.
+
 Lemma uint63_eqb_correct i : eqb_correct_on PrimInt63.eqb i.
-Proof. by move=> j; case: (Uint63.eqb_spec i j); case: PrimInt63.eqb. Qed.
+Proof. exact: eqb_correct. Qed.
+(* Proof. by move=> j; case: (Uint63.eqb_spec i j); case: PrimInt63.eqb. Qed. *)
 
 Lemma uint63_eqb_refl i : eqb_refl_on PrimInt63.eqb i.
-Proof. by case: (Uint63.eqb_spec i i) => _ H; exact: H. Qed.
+Proof. exact: eqb_refl. Qed.
+(* Proof. by case: (Uint63.eqb_spec i i) => _ H; exact: H. Qed. *)
 
 Elpi Db derive.eqbcorrect.db lp:{{
 

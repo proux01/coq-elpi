@@ -43,11 +43,12 @@ Register Coq.Init.Datatypes.andb  as elpi.andb.
 Register Coq.Init.Datatypes.true  as elpi.true.
 Register Coq.Init.Datatypes.false as elpi.false.
 
-From Coq Require Bool.
+#[only="8.19"] From Coq Require Bool.
+#[only="8.20"] From Coq Require Bool.
 
-Register Coq.Bool.Bool.reflect  as elpi.reflect.
-Register Coq.Bool.Bool.ReflectF as elpi.ReflectF.
-Register Coq.Bool.Bool.ReflectT as elpi.ReflectT.
+Register reflect  as elpi.reflect.
+Register ReflectF as elpi.ReflectF.
+Register ReflectT as elpi.ReflectT.
 
 From Coq Require PrimFloat PrimInt63.
 #[skip="8.19"] From Coq Require PrimString.

@@ -13,13 +13,13 @@ From elpi.apps Require Import derive.
 From elpi.apps Require Import derive.bcongr derive.eq derive.isK.
 
 Definition eq_axiom T eqb :=
-  forall (x y : T), Bool.Bool.reflect (x = y) (eqb x y).
+  forall (x y : T), reflect (x = y) (eqb x y).
 
 Definition eq_axiom_at T eqb (x : T) :=
-  forall y, Bool.Bool.reflect (x = y) (eqb x y).
+  forall y, reflect (x = y) (eqb x y).
 
 Definition eq_axiom_on T eqb (x y : T) :=
-  Bool.Bool.reflect (x = y) (eqb x y).
+  reflect (x = y) (eqb x y).
 
 Register eq_axiom    as elpi.derive.eq_axiom.
 Register eq_axiom_at as elpi.derive.eq_axiom_at.

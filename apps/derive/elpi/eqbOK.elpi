@@ -52,7 +52,7 @@ main (const C) Prefix [CL] :- std.do! [
   std.assert-ok! (coq.typecheck Breflect _) "eqbOK generates illtyped term", 
   coq.ensure-fresh-global-id (Prefix ^ "eqb_OK") Namerf,
   X = global (const C),
-  coq.env.add-const Namerf Breflect {{ forall a b : lp:X, Bool.reflect (@eq lp:X a b) (lp:F a b) }} @opaque! Reflect,
+  coq.env.add-const Namerf Breflect {{ forall a b : lp:X, lib:elpi.reflect (@eq lp:X a b) (lp:F a b) }} @opaque! Reflect,
   CL = eqbok-for (const C) Reflect,
   coq.elpi.accumulate _ "derive.eqbOK.db" (clause _ _ CL),
 ].
