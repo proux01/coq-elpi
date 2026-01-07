@@ -158,7 +158,6 @@ Record foo := {
   f : nat -> nat;
   _ : f 0 = 0;
 }.
-Fail Check _elpi_ctx_entry_2_.
 End anonymous_fields.
 
 Module raw_anonymous_fields.
@@ -167,7 +166,6 @@ Record foo := {
   f : nat -> nat;
   _ : f 0 = 0;
 }.
-Fail Check _elpi_ctx_entry_2_.
 End raw_anonymous_fields.
 
 (*****************************************)
